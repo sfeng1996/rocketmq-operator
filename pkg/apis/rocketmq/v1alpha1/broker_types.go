@@ -19,6 +19,7 @@ package v1alpha1
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -47,6 +48,7 @@ type BrokerSpec struct {
 	// StorageMode can be EmptyDir, HostPath, StorageClass
 	StorageMode string `json:"storageMode"`
 	// HostPath is the local path to store data
+	Storage   *RockermqStorage  `json:"storage"`
 	HostPath string `json:"hostPath"`
 	// Env defines custom env, e.g. BROKER_MEM
 	Env []corev1.EnvVar `json:"env"`
@@ -56,6 +58,15 @@ type BrokerSpec struct {
 	VolumeClaimTemplates []corev1.PersistentVolumeClaim `json:"volumeClaimTemplates"`
 	// The name of pod where the metadata from
 	ScalePodName string `json:"scalePodName"`
+}
+
+type RockermqStorage struct {
+	Size           resource.Quantity `json:"size"`
+	//Type           StorageType       `json:"type"`
+	Class          string            `json:"class"`
+	Path           string            `json:"path"`
+	DeleteClaim    bool              `json:"deleteClaim,omitempty"`
+	PVDistribution map[string]string `json:"pvDistribution,omitempty"`
 }
 
 // BrokerStatus defines the observed state of Broker

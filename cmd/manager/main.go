@@ -21,13 +21,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/operator-framework/operator-sdk/pkg/k8sutil"
 	"os"
 	"runtime"
 
 	"github.com/apache/rocketmq-operator/pkg/apis"
 	"github.com/apache/rocketmq-operator/pkg/controller"
 
-	"github.com/operator-framework/operator-sdk/pkg/k8sutil"
 	"github.com/operator-framework/operator-sdk/pkg/leader"
 	"github.com/operator-framework/operator-sdk/pkg/log/zap"
 	"github.com/operator-framework/operator-sdk/pkg/metrics"
@@ -76,6 +76,7 @@ func main() {
 
 	printVersion()
 
+	//namespace := "public-service"
 	namespace, err := k8sutil.GetWatchNamespace()
 	if err != nil {
 		log.Error(err, "Failed to get watch namespace")

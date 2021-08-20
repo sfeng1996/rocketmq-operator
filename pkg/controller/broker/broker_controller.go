@@ -154,6 +154,50 @@ func (r *ReconcileBroker) Reconcile(request reconcile.Request) (reconcile.Result
 	share.BrokerClusterName = broker.Name
 	replicaPerGroup := broker.Spec.ReplicaPerGroup
 	reqLogger.Info("brokerGroupNum=" + strconv.Itoa(share.GroupNum) + ", replicaPerGroup=" + strconv.Itoa(replicaPerGroup))
+	if broker.Spec.Storage != nil {
+		reqLogger.Info("start reconcile pv")
+		for pvName, pvValue := range broker.Spec.Storage.PVDistribution{
+			//pv := r.getPersistentVolume(broker, pvName, pvValue)
+			found := &corev1.PersistentVolume{}
+			err := r.client.Get(context.TODO(), types.NamespacedName{
+				Name: pvName,
+			}, found)
+			if err != nil && errors.IsNotFound(err){
+				reqLogger.WithValues("PersistentVolume.Namespace", broker.Namespace, "PersistentVolume.Name", pvName).
+					Info("creating a new PersistentVolume")
+				pv := r.getPersistentVolume(broker, pvName, pvValue)
+				err := r.client.Create(context.TODO(), pv)
+				if err != nil {
+					reqLogger.WithValues("PersistentVolume.Namespace", broker.Namespace, "PersistentVolume.Name", pvName).Error(err, "creating PersistentVolume fail")
+				}
+			}  else if err != nil {
+				reqLogger.Error( err, "Failed to create persistentVolume", pvName)
+			}
+		}
+
+		reqLogger.Info("start reconcile pvc")
+		for pvName, _ := range broker.Spec.Storage.PVDistribution{
+			pvcName := "broker-storage-"+pvName
+			found := &corev1.PersistentVolumeClaim{}
+			err := r.client.Get(context.TODO(), types.NamespacedName{
+				Name: pvcName,
+				Namespace: broker.Namespace,
+			}, found)
+			if err != nil && errors.IsNotFound(err) {
+				reqLogger.WithValues("PersistentVolumeClaim.Namespace", broker.Namespace, "PersistentVolumeClaim.Name", pvcName).
+					Info("creating a new PersistentVolumeClaim")
+				pv := r.getPersistentVolumeClaim(broker, pvName, pvcName)
+				err := r.client.Create(context.TODO(), pv)
+				if err != nil {
+					reqLogger.WithValues("PersistentVolumeClaim.Namespace", broker.Namespace, "PersistentVolumeClaim.Name", pvName).Error(err, "creating PersistentVolume fail")
+				}
+			}  else if err != nil {
+				reqLogger.Error(err, "Failed to create persistentVolumeClaim", pvcName)
+			}
+		}
+
+
+	}
 	for brokerGroupIndex := 0; brokerGroupIndex < share.GroupNum; brokerGroupIndex++ {
 		reqLogger.Info("Check Broker cluster " + strconv.Itoa(brokerGroupIndex+1) + "/" + strconv.Itoa(share.GroupNum))
 		dep := r.getBrokerStatefulSet(broker, brokerGroupIndex, 0)
@@ -440,10 +484,10 @@ func (r *ReconcileBroker) getBrokerStatefulSet(broker *rocketmqv1alpha1.Broker, 
 							SubPath:   cons.BrokerConfigName,
 						}},
 					}},
-					Volumes: getVolumes(broker),
+					Volumes: getVolumes(broker, statefulSetName),
 				},
 			},
-			VolumeClaimTemplates: getVolumeClaimTemplates(broker),
+			//VolumeClaimTemplates: getVolumeClaimTemplates(broker),
 		},
 	}
 	// Set Broker instance as the owner and controller
@@ -482,10 +526,19 @@ func getVolumeClaimTemplates(broker *rocketmqv1alpha1.Broker) []corev1.Persisten
 	}
 }
 
-func getVolumes(broker *rocketmqv1alpha1.Broker) []corev1.Volume {
+func getVolumes(broker *rocketmqv1alpha1.Broker, statefulSetName string) []corev1.Volume {
 	switch broker.Spec.StorageMode {
 	case cons.StorageModeStorageClass:
-		return broker.Spec.Volumes
+		volumes := broker.Spec.Volumes
+		volumes = append(volumes, corev1.Volume{
+			Name: "broker-storage",
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: "broker-storage-"+statefulSetName+"-0",
+				},
+			},
+		})
+		return volumes
 	case cons.StorageModeEmptyDir:
 		volumes := broker.Spec.Volumes
 		volumes = append(volumes, corev1.Volume{
@@ -551,5 +604,73 @@ func checkAndCopyMetadata(newPodNames []string, dir string, sourcePodName string
 			cmdOpts = buildOutputCommand(jsonStr, dir)
 			exec(cmdOpts, newPodName, k8s, namespace)
 		}
+	}
+}
+
+func (r *ReconcileBroker) getPersistentVolume(broker *rocketmqv1alpha1.Broker, pvName, pvValue string) *corev1.PersistentVolume {
+	nodeAffinityKey := "kubernetes.io/hostname"
+	mode := corev1.PersistentVolumeFilesystem
+	return &corev1.PersistentVolume{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   pvName,
+			Labels: map[string]string{"pvName": pvName},
+			//OwnerReferences: redisv1alpha1.DefaultOwnerReferences(cluster),
+		},
+		Spec: corev1.PersistentVolumeSpec{
+			Capacity: corev1.ResourceList{
+				corev1.ResourceStorage: broker.Spec.Storage.Size,
+			},
+			VolumeMode:                    &mode,
+			AccessModes:                   []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			PersistentVolumeReclaimPolicy: corev1.PersistentVolumeReclaimDelete,
+			StorageClassName:              broker.Spec.Storage.Class,
+			PersistentVolumeSource: corev1.PersistentVolumeSource{
+				Local: &corev1.LocalVolumeSource{
+					Path: broker.Spec.Storage.Path,
+				},
+			},
+			NodeAffinity: &corev1.VolumeNodeAffinity{
+				Required: &corev1.NodeSelector{
+					NodeSelectorTerms: []corev1.NodeSelectorTerm{
+						{
+							MatchExpressions: []corev1.NodeSelectorRequirement{
+								{
+									Key:      nodeAffinityKey,
+									Operator: corev1.NodeSelectorOpIn,
+									Values: []string{
+										pvValue,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func (r *ReconcileBroker) getPersistentVolumeClaim(broker *rocketmqv1alpha1.Broker, pvName, pvcName string) *corev1.PersistentVolumeClaim {
+	mode := corev1.PersistentVolumeFilesystem
+	return &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   pvcName,
+			Namespace: broker.Namespace,
+			//OwnerReferences: redisv1alpha1.DefaultOwnerReferences(cluster),
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: broker.Spec.Storage.Size,
+				},
+			},
+			StorageClassName: &broker.Spec.Storage.Class,
+			VolumeMode:       &mode,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"pvName": pvName},
+			},
+		},
 	}
 }
