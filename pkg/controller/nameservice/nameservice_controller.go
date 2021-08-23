@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -124,6 +125,22 @@ func (r *ReconcileNameService) Reconcile(request reconcile.Request) (reconcile.R
 		}
 		// Error reading the object - requeue the request.
 		return reconcile.Result{}, err
+	}
+	// reconcile service
+	if ! instance.Spec.HostNetwork {
+		noneService := &corev1.Service{}
+		dep := r.serviceForNameService(instance)
+		controllerutil.SetControllerReference(instance, dep, r.scheme)
+		err := r.client.Get(context.TODO(), types.NamespacedName{Name: dep.Name, Namespace: dep.Namespace}, noneService)
+		if err != nil && errors.IsNotFound(err) {
+			err = r.client.Create(context.TODO(), dep)
+			if err != nil {
+				reqLogger.Error(err, "Failed to create new service of NameService", "Service.Namespace", dep.Namespace, "Service.Name", dep.Name)
+			}
+			return reconcile.Result{Requeue: true}, nil
+		} else if err != nil {
+			reqLogger.Error(err, "Failed to get NameService Service")
+		}
 	}
 
 	// Check if the statefulSet already exists, if not create a new one
@@ -346,4 +363,28 @@ func (r *ReconcileNameService) statefulSetForNameService(nameService *rocketmqv1
 	controllerutil.SetControllerReference(nameService, dep, r.scheme)
 
 	return dep
+}
+
+func (r *ReconcileNameService) serviceForNameService(nameService *rocketmqv1alpha1.NameService) *corev1.Service {
+	return &corev1.Service {
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "name-server-service",
+			Namespace: nameService.Namespace,
+		},
+		Spec: corev1.ServiceSpec{
+			ClusterIP: "None",
+			Type: corev1.ServiceTypeClusterIP,
+			Selector: map[string]string{
+				"name_service_cr": "name-service",
+			},
+			Ports: []corev1.ServicePort{
+				{
+					Port: cons.NameServiceMainContainerPort,
+					TargetPort: intstr.FromInt(cons.NameServiceMainContainerPort),
+					Protocol: corev1.ProtocolTCP,
+				},
+			},
+
+		},
+	}
 }

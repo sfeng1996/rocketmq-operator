@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"reflect"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -136,6 +137,28 @@ func (r *ReconcileConsole) Reconcile(request reconcile.Request) (reconcile.Resul
 		share.NameServersStr = instance.Spec.NameServers
 	}
 
+	consoleService := newServiceForCR(instance)
+
+	if err := controllerutil.SetControllerReference(instance, consoleService, r.scheme); err != nil {
+		return reconcile.Result{}, err
+	}
+	service := &corev1.Service{}
+	err = r.client.Get(context.TODO(), types.NamespacedName{
+		Name: "console-service",
+		Namespace: consoleService.Namespace,
+	}, service)
+	if err != nil && errors.IsNotFound(err) {
+		reqLogger.Info("Creating RocketMQ Console Service", "Namespace", consoleService.Namespace, "Name", consoleService.Name)
+		err = r.client.Create(context.TODO(), consoleService)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+
+		reqLogger.Info("Creating RocketMQ Console Service success", "Namespace", consoleService.Namespace, "Name", consoleService.Name)
+	} else if err != nil {
+		return reconcile.Result{}, err
+	}
+
 	consoleDeployment := newDeploymentForCR(instance)
 
 	// Set Console instance as the owner and controller
@@ -147,7 +170,7 @@ func (r *ReconcileConsole) Reconcile(request reconcile.Request) (reconcile.Resul
 	found := &appsv1.Deployment{}
 	err = r.client.Get(context.TODO(), types.NamespacedName{Name: consoleDeployment.Name, Namespace: consoleDeployment.Namespace}, found)
 	if err != nil && errors.IsNotFound(err) {
-		reqLogger.Info("Creating RocketMQ Console Deployment", "Namespace", consoleDeployment, "Name", consoleDeployment.Name)
+		reqLogger.Info("Creating RocketMQ Console Deployment", "Namespace", consoleDeployment.Namespace, "Name", consoleDeployment.Name)
 		err = r.client.Create(context.TODO(), consoleDeployment)
 		if err != nil {
 			return reconcile.Result{}, err
@@ -213,4 +236,28 @@ func newDeploymentForCR(cr *rocketmqv1alpha1.Console) *appsv1.Deployment {
 	}
 
 	return dep
+}
+
+func newServiceForCR(cr *rocketmqv1alpha1.Console) *corev1.Service {
+	return &corev1.Service {
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "console-service",
+			Namespace: cr.Namespace,
+		},
+		Spec: corev1.ServiceSpec{
+			Type: corev1.ServiceTypeNodePort,
+			Selector: map[string]string{
+				"app": "rocketmq-console",
+			},
+			Ports: []corev1.ServicePort{
+				{
+					Port: cr.Spec.ConsoleDeployment.Spec.Template.Spec.Containers[0].Ports[0].ContainerPort,
+					TargetPort: intstr.FromInt(int(cr.Spec.ConsoleDeployment.Spec.Template.Spec.Containers[0].Ports[0].ContainerPort)),
+					NodePort: 30000,
+					Protocol: corev1.ProtocolTCP,
+				},
+			},
+
+		},
+	}
 }
