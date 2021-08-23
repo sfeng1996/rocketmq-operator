@@ -71,10 +71,10 @@ const (
 	StoreMountPath = DataPath + "/store"
 
 	// LogSubPathName is the sub-path name of log dir under mounted host dir
-	LogSubPathName = "logs"
+	LogSubPathName = "local-pv/rocketmq/logs"
 
 	// StoreSubPathName is the sub-path name of store dir under mounted host dir
-	StoreSubPathName = "store"
+	StoreSubPathName = "local-pv/rocketmq/store"
 
 	// NameServiceMainContainerPort is the main port number of name server container
 	NameServiceMainContainerPort = 9876
