@@ -347,6 +347,20 @@ func (r *ReconcileNameService) statefulSetForNameService(nameService *rocketmqv1
 							ContainerPort: cons.NameServiceMainContainerPort,
 							Name:          cons.NameServiceMainContainerPortName,
 						}},
+						Env: []corev1.EnvVar{
+							{
+								Name: cons.EnvNameServerMem,
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										Key: cons.EnvNameServerMem,
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "broker-config",
+										},
+									},
+								},
+							},
+
+						},
 						VolumeMounts: []corev1.VolumeMount{{
 							MountPath: cons.LogMountPath,
 							Name:      nameService.Spec.VolumeClaimTemplates[0].Name,

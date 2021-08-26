@@ -64,6 +64,9 @@ const (
 	// EnvBrokerName is the container environment variable name of broker name
 	EnvBrokerName = "BROKER_NAME"
 
+	// EnvNameServerMem is the container environment variable name of nameserver_mem
+	EnvNameServerMem = "NAMESERVER_MEM"
+
 	// LogMountPath is the directory of RocketMQ log files
 	LogMountPath = DataPath + "/logs"
 
