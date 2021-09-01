@@ -243,6 +243,12 @@ func (r *ReconcileNameService) updateNameServiceStatus(instance *rocketmqv1alpha
 		}
 
 	}
+	nameServerListStr := ""
+	for _, value := range hostIps {
+		nameServerListStr = nameServerListStr + value + ":9876;"
+	}
+	share.NameServersStr = nameServerListStr[:len(nameServerListStr)-1]
+	reqLogger.Info("share.NameServersStr:" + share.NameServersStr)
 	// Print NameServers IP
 	for i, value := range instance.Status.NameServers {
 		reqLogger.Info("NameServers IP " + strconv.Itoa(i) + ": " + value)
